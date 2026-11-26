@@ -34,7 +34,6 @@ def init_ee():
 
 init_ee()
 
-# Compact CSS to match your Colab dashboard aesthetics
 st.markdown("""
 <style>
   .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 1450px; }
@@ -86,7 +85,7 @@ FOREST_NON_TOF_MASK = get_forest_non_tof_mask()
 def load_district(state, district_name):
     shapefile_state = 'Orissa' if state == 'Odisha' else state
     return (districts_fc
-            .filter(ee.Filter.eq('NAME_1', shapefileState))
+            .filter(ee.Filter.eq('NAME_1', shapefile_state))
             .filter(ee.Filter.eq('DISTRICT', district_name))
             .first()
             .geometry()
@@ -127,6 +126,18 @@ def tree_change(base_tree, current_tree):
     return (base_tree.unmask(0).toByte().multiply(2)
             .add(current_tree.unmask(0).toByte())
             .rename('TreeChange'))
+
+def add_ee_layer(fmap, ee_image, vis_params, name, show=True, opacity=1.0):
+    map_id_dict = ee.Image(ee_image).getMapId(vis_params)
+    folium.raster_layers.TileLayer(
+        tiles=map_id_dict['tile_fetcher'].url_format,
+        attr='Google Earth Engine',
+        name=name,
+        overlay=True,
+        control=True,
+        show=show,
+        opacity=opacity
+    ).add_to(fmap)
 
 @st.cache_data(show_spinner="Computing district statistics...")
 def compute_district_stats(state, district_name, base_year, current_year):
@@ -239,7 +250,6 @@ with left_col:
 
 s = compute_district_stats(state, district, base_yr, curr_yr)
 
-# Top Analysis Summary Cards (Left-aligned)
 with center_col:
     st.markdown(f"**📊 Analysis Summary (for Selected Current Year), {district}**")
     cards = [
@@ -263,7 +273,6 @@ with center_col:
         </div>
         """, unsafe_allow_html=True)
 
-    # Render Map
     region = load_district(state, district)
     bldg_mask = get_building_mask(region)
     tof_base = load_exported_tof(district, base_yr, region, bldg_mask)
@@ -273,43 +282,31 @@ with center_col:
     total_curr = combine_total_tree_cover(tof_curr, forest_layer, region)
     change_map = tree_change(tof_base, tof_curr)
 
-def add_ee_layer(fmap, ee_image, vis_params, name, show=True, opacity=1.0):
-      map_id_dict = ee.Image(ee_image).getMapId(vis_params)
-      folium.raster_layers.TileLayer(
-          tiles=map_id_dict['tile_fetcher'].url_format,
-          attr='Google Earth Engine',
-          name=name,
-          overlay=True,
-          control=True,
-          show=show,
-          opacity=opacity
-      ).add_to(fmap)
+    centroid = region.centroid(100).coordinates().getInfo()
+    m = folium.Map(
+        location=[centroid[1], centroid[0]],
+        zoom_start=9,
+        max_zoom=12,
+        tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+        attr='Google Hybrid'
+    )
 
-  centroid = region.centroid(100).coordinates().getInfo()
-  m = folium.Map(
-      location=[centroid[1], centroid[0]],
-      zoom_start=9,
-      max_zoom=12,
-      tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-      attr='Google Hybrid'
-  )
+    if show_change:
+        add_ee_layer(m, change_map, {'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']}, 'TOF Change Map', True, op_change)
+    if show_tot_base:
+        add_ee_layer(m, total_base, {'palette': ['00AA00']}, f'Total Tree {base_yr}', True, layer_op)
+    if show_tot_curr:
+        add_ee_layer(m, total_curr, {'palette': ['006400']}, f'Total Tree {curr_yr}', True, layer_op)
+    if show_tof_base:
+        add_ee_layer(m, tof_base, {'palette': ['FFD700']}, f'TOF & AF {base_yr}', True, layer_op)
+    if show_tof_curr:
+        add_ee_layer(m, tof_curr, {'palette': ['FF8C00']}, f'TOF & AF {curr_yr}', True, layer_op)
+    if show_forest:
+        add_ee_layer(m, forest_layer, {'palette': ['0D9488']}, 'Forest and Non-TOF Trees', True, layer_op)
 
-  if show_change:
-      add_ee_layer(m, change_map, {'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']}, 'TOF Change Map', True, op_change)
-  if show_tot_base:
-      add_ee_layer(m, total_base, {'palette': ['00AA00']}, f'Total Tree {base_yr}', True, layer_op)
-  if show_tot_curr:
-      add_ee_layer(m, total_curr, {'palette': ['006400']}, f'Total Tree {curr_yr}', True, layer_op)
-  if show_tof_base:
-      add_ee_layer(m, tof_base, {'palette': ['FFD700']}, f'TOF & AF {base_yr}', True, layer_op)
-  if show_tof_curr:
-      add_ee_layer(m, tof_curr, {'palette': ['FF8C00']}, f'TOF & AF {curr_yr}', True, layer_op)
-  if show_forest:
-      add_ee_layer(m, forest_layer, {'palette': ['0D9488']}, 'Forest and Non-TOF Trees', True, layer_op)
-
-  boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
-  add_ee_layer(m, boundary_img, {'palette': ['000000']}, 'Boundary', True, 1.0)
-  st_folium(m, height=420, use_container_width=True, returned_objects=[])
+    boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
+    add_ee_layer(m, boundary_img, {'palette': ['000000']}, 'Boundary', True, 1.0)
+    st_folium(m, height=420, use_container_width=True, returned_objects=[])
 
 with right_col:
     st.markdown("**📈 Detailed Results**")
@@ -352,7 +349,6 @@ with right_col:
     plt.tight_layout()
     st.pyplot(fig)
 
-# Methodology & Limitations Footer
 st.markdown("""
 <div class="footer-box">
   <div><b>🛰️ Methodology:</b> Trees Outside Forest and Agroforestry (TOF-AF) cover is mapped using supervised machine learning applied to Google’s 10 m Satellite Embedding dataset (61-band AI feature representations). District-level classification accuracy is evaluated against an independent validation sample using the F1 score.</div>
