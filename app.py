@@ -4,7 +4,8 @@ import tempfile
 import logging
 import streamlit as st
 import ee
-import geemap.foliumap as geemap
+import folium
+from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 
 logging.getLogger('google_auth_httplib2').setLevel(logging.ERROR)
@@ -272,25 +273,43 @@ with center_col:
     total_curr = combine_total_tree_cover(tof_curr, forest_layer, region)
     change_map = tree_change(tof_base, tof_curr)
 
-    m = geemap.Map(max_zoom=12, basemap="HYBRID")
-    m.centerObject(region, 10)
+def add_ee_layer(fmap, ee_image, vis_params, name, show=True, opacity=1.0):
+      map_id_dict = ee.Image(ee_image).getMapId(vis_params)
+      folium.raster_layers.TileLayer(
+          tiles=map_id_dict['tile_fetcher'].url_format,
+          attr='Google Earth Engine',
+          name=name,
+          overlay=True,
+          control=True,
+          show=show,
+          opacity=opacity
+      ).add_to(fmap)
 
-    if show_change:
-        m.addLayer(change_map, {'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']}, 'TOF Change Map', True, op_change)
-    if show_tot_base:
-        m.addLayer(total_base, {'palette': ['00AA00']}, f'Total Tree {base_yr}', True, layer_op)
-    if show_tot_curr:
-        m.addLayer(total_curr, {'palette': ['006400']}, f'Total Tree {curr_yr}', True, layer_op)
-    if show_tof_base:
-        m.addLayer(tof_base, {'palette': ['FFD700']}, f'TOF & AF {base_yr}', True, layer_op)
-    if show_tof_curr:
-        m.addLayer(tof_curr, {'palette': ['FF8C00']}, f'TOF & AF {curr_yr}', True, layer_op)
-    if show_forest:
-        m.addLayer(forest_layer, {'palette': ['0D9488']}, 'Forest and Non-TOF Trees', True, layer_op)
+  centroid = region.centroid(100).coordinates().getInfo()
+  m = folium.Map(
+      location=[centroid[1], centroid[0]],
+      zoom_start=9,
+      max_zoom=12,
+      tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      attr='Google Hybrid'
+  )
 
-    boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
-    m.addLayer(boundary_img, {'palette': ['000000']}, 'Boundary', True, 1.0)
-    m.to_streamlit(height=420)
+  if show_change:
+      add_ee_layer(m, change_map, {'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']}, 'TOF Change Map', True, op_change)
+  if show_tot_base:
+      add_ee_layer(m, total_base, {'palette': ['00AA00']}, f'Total Tree {base_yr}', True, layer_op)
+  if show_tot_curr:
+      add_ee_layer(m, total_curr, {'palette': ['006400']}, f'Total Tree {curr_yr}', True, layer_op)
+  if show_tof_base:
+      add_ee_layer(m, tof_base, {'palette': ['FFD700']}, f'TOF & AF {base_yr}', True, layer_op)
+  if show_tof_curr:
+      add_ee_layer(m, tof_curr, {'palette': ['FF8C00']}, f'TOF & AF {curr_yr}', True, layer_op)
+  if show_forest:
+      add_ee_layer(m, forest_layer, {'palette': ['0D9488']}, 'Forest and Non-TOF Trees', True, layer_op)
+
+  boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
+  add_ee_layer(m, boundary_img, {'palette': ['000000']}, 'Boundary', True, 1.0)
+  st_folium(m, height=420, use_container_width=True, returned_objects=[])
 
 with right_col:
     st.markdown("**📈 Detailed Results**")
