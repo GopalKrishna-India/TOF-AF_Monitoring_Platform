@@ -1,6 +1,8 @@
 streamlit
-geemap
+geemap==0.35.1
 folium
 streamlit-folium
 earthengine-api
 matplotlib
+python-box==7.2.0
+xyzservices==2024.9.0
