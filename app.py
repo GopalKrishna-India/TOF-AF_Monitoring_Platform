@@ -233,7 +233,7 @@ def get_district_bundle(state, district_name, base_year, current_year):
     change_masked = change_map.selfMask()
 
     tile_urls = {
-        'change': ee.Image(change_masked).getMapId({'min': 1, 'max': 3, 'palette': ['00FF00', 'FF0000', '006400']})['tile_fetcher'].url_format,
+        'change': ee.Image(change_masked).getMapId({'min': 0, 'max': 3, 'palette': ['000000','00FF00', 'FF0000', '006400']})['tile_fetcher'].url_format,
         'tot_base': ee.Image(total_base).getMapId({'palette': ['00AA00']})['tile_fetcher'].url_format,
         'tot_curr': ee.Image(total_curr).getMapId({'palette': ['006400']})['tile_fetcher'].url_format,
         'tof_base': ee.Image(tof_base).getMapId({'palette': ['FFD700']})['tile_fetcher'].url_format,
