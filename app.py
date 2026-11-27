@@ -34,43 +34,49 @@ def init_ee():
 
 init_ee()
 
-# Compact CSS: clears top Streamlit toolbar and removes excessive vertical gaps
 st.markdown("""
 <style>
   .block-container {
-      padding-top: 3.6rem !important;
-      padding-bottom: 0.4rem !important;
+      padding-top: 3.5rem !important;
+      padding-bottom: 0.5rem !important;
       padding-left: 1.2rem !important;
       padding-right: 1.2rem !important;
       max-width: 1500px;
-  }
-  [data-testid="stVerticalBlock"] {
-      gap: 0.35rem !important;
-  }
-  .stSelectbox, .stSlider {
-      margin-bottom: 0px !important;
   }
   .header-box {
       background: #ffffff;
       border: 1px solid #e5e7eb;
       border-radius: 6px;
       padding: 6px 12px;
-      margin-bottom: 2px;
+      margin-bottom: 8px;
+  }
+  .sec-title {
+      font-size: 12.5px;
+      font-weight: 700;
+      color: #111827;
+      margin-bottom: 4px;
   }
   .metric-card {
       border: 1px solid #e5e7eb;
       border-radius: 5px;
-      padding: 4px 8px;
-      line-height: 1.2;
+      padding: 5px 8px;
+      margin-bottom: 6px;
+      line-height: 1.25;
   }
   .footer-box {
       background: #f9fafb;
       border: 1px solid #e5e7eb;
       border-radius: 6px;
-      padding: 5px 10px;
+      padding: 6px 10px;
+      margin-top: 6px;
       font-size: 11px;
       color: #374151;
       line-height: 1.35;
+  }
+  /* Compact Leaflet layer control */
+  .leaflet-control-layers {
+      font-size: 11px !important;
+      padding: 4px 6px !important;
   }
 </style>
 """, unsafe_allow_html=True)
@@ -112,7 +118,7 @@ def get_forest_non_tof_mask():
 FOREST_NON_TOF_MASK = get_forest_non_tof_mask()
 
 # ======================================================
-# 2. PROCESSING FUNCTIONS (CACHED FOR INSTANT RESPONSE)
+# 2. PROCESSING FUNCTIONS
 # ======================================================
 def load_district(state, district_name):
     shapefile_state = 'Orissa' if state == 'Odisha' else state
@@ -223,9 +229,11 @@ def get_district_bundle(state, district_name, base_year, current_year):
 
     centroid = region.centroid(100).coordinates().getInfo()
 
-    # Pre-fetch tile URLs once per district/year selection
+    # Mask value 0 (Non-tree) on change_map so satellite basemap shows clearly underneath
+    change_masked = change_map.selfMask()
+
     tile_urls = {
-        'change': ee.Image(change_map).getMapId({'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']})['tile_fetcher'].url_format,
+        'change': ee.Image(change_masked).getMapId({'min': 1, 'max': 3, 'palette': ['00FF00', 'FF0000', '006400']})['tile_fetcher'].url_format,
         'tot_base': ee.Image(total_base).getMapId({'palette': ['00AA00']})['tile_fetcher'].url_format,
         'tot_curr': ee.Image(total_curr).getMapId({'palette': ['006400']})['tile_fetcher'].url_format,
         'tof_base': ee.Image(tof_base).getMapId({'palette': ['FFD700']})['tile_fetcher'].url_format,
@@ -249,23 +257,22 @@ st.markdown("""
 left_col, center_col, right_col = st.columns([0.95, 2.4, 1.1], gap="small")
 
 with left_col:
-    st.markdown("<div style='font-size:12px; font-weight:700;'>📍 Location & Period</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-title'>📍 Location & Period</div>", unsafe_allow_html=True)
     state = st.selectbox("State", list(TARGET_DISTRICTS.keys()), index=2)
     district = st.selectbox("District", TARGET_DISTRICTS[state], index=0)
     c1, c2 = st.columns(2)
     base_yr = c1.selectbox("Base Yr", YEARS_LIST, index=0)
     curr_yr = c2.selectbox("Curr Yr", YEARS_LIST, index=3)
 
-    layer_op = st.slider("Overlay Opacity", 0.1, 1.0, 0.80, 0.05)
+    layer_op = st.slider("Overlay Opacity", 0.1, 1.0, 0.85, 0.05)
 
     st.markdown("""
-    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:5px; padding:6px 8px; font-size:10.5px; line-height:1.4; margin-top:2px;">
+    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:5px; padding:6px 8px; font-size:10.5px; line-height:1.4; margin-top:4px;">
       <b>🗺️ Legend</b><br>
       <b>TOF Change:</b><br>
-      <span style="display:inline-block;width:8px;height:8px;background:#ffffff;border:1px solid #ccc;"></span> Non-tree
-      <span style="display:inline-block;width:8px;height:8px;background:#00ff00;margin-left:6px;"></span> Gain<br>
-      <span style="display:inline-block;width:8px;height:8px;background:#ff0000;"></span> Loss
-      <span style="display:inline-block;width:8px;height:8px;background:#006400;margin-left:18px;"></span> Stable Tree<br>
+      <span style="display:inline-block;width:8px;height:8px;background:#00ff00;"></span> Gain
+      <span style="display:inline-block;width:8px;height:8px;background:#ff0000;margin-left:12px;"></span> Loss
+      <span style="display:inline-block;width:8px;height:8px;background:#006400;margin-left:12px;"></span> Stable Tree<br>
       <b>TOF - AF & Forest Cover:</b><br>
       <span style="display:inline-block;width:8px;height:8px;background:#00aa00;"></span> Total Base
       <span style="display:inline-block;width:8px;height:8px;background:#006400;margin-left:8px;"></span> Total Curr<br>
@@ -274,14 +281,14 @@ with left_col:
       <span style="display:inline-block;width:8px;height:8px;background:#0d9488;"></span> Forest and Non-TOF Trees
     </div>
     <div style="font-size:10px; color:#6b7280; margin-top:3px;">
-      💡 Use the top-right layer box on the map to toggle layers without resetting zoom.
+      💡 Hover/click the top-right layer icon on the map to toggle layers.
     </div>
     """, unsafe_allow_html=True)
 
 s, centroid, tile_urls = get_district_bundle(state, district, base_yr, curr_yr)
 
 with center_col:
-    st.markdown(f"<div style='font-size:12px; font-weight:700;'>📊 Analysis Summary (for Selected Current Year), {district}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='sec-title'>📊 Analysis Summary (for Selected Current Year), {district}</div>", unsafe_allow_html=True)
     cards = [
         ('📐', 'District Area', f"{s['DistrictArea_ha']} ha", '#ecfdf5'),
         ('🌳', 'Total Tree Cover', f"{s['TotalTreeAreaCurrent_ha']} ha", '#ecfdf5'),
@@ -303,14 +310,21 @@ with center_col:
         </div>
         """, unsafe_allow_html=True)
 
-    # Map with client-side LayerControl (toggling layers never resets zoom or redraws boundary)
+    # Map with collapsed LayerControl and hidden raw basemap URL
     m = folium.Map(
         location=[centroid[1], centroid[0]],
         zoom_start=9,
         max_zoom=12,
-        tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
-        attr='Google Hybrid'
+        tiles=None
     )
+
+    folium.TileLayer(
+        tiles='https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+        attr='Google Hybrid',
+        name='Google Satellite Hybrid',
+        overlay=False,
+        control=False
+    ).add_to(m)
 
     layers_spec = [
         (tile_urls['change'], 'TOF Change Map', True, layer_op),
@@ -333,20 +347,20 @@ with center_col:
             opacity=op
         ).add_to(m)
 
-    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    folium.LayerControl(position='topright', collapsed=True).add_to(m)
 
     st_folium(
         m,
-        height=345,
+        height=330,
         use_container_width=True,
         returned_objects=[],
         key=f"map_{state}_{district}_{base_yr}_{curr_yr}_{layer_op}"
     )
 
 with right_col:
-    st.markdown("<div style='font-size:12px; font-weight:700;'>📈 Detailed Results</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sec-title'>📈 Detailed Results</div>", unsafe_allow_html=True)
     st.markdown(f"""
-    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:6px 8px; font-size:11px; line-height:1.42;">
+    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:7px 9px; font-size:11px; line-height:1.45; margin-bottom:8px;">
       <b>{s['District'].upper()}, {s['State']}</b><br>
       <b>District Area:</b> {s['DistrictArea_ha']} ha<br>
       <b>Total Tree Cover:</b> {s['TotalTreeAreaCurrent_ha']} ha ({s['TotalTreeCoverPercent']}%)<br>
@@ -358,8 +372,8 @@ with right_col:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<div style='font-size:12px; font-weight:700; margin-top:2px;'>📊 Area Comparison</div>", unsafe_allow_html=True)
-    fig, ax = plt.subplots(figsize=(3.4, 2.15), dpi=110)
+    st.markdown("<div class='sec-title'>📊 Area Comparison</div>", unsafe_allow_html=True)
+    fig, ax = plt.subplots(figsize=(3.4, 2.2), dpi=110)
     labels = [f'Total\n{base_yr}', f'Total\n{curr_yr}', f'TOF\n{base_yr}', f'TOF\n{curr_yr}', 'Forest &\nNon-TOF']
     values = [
         float(s['TotalTreeAreaBase_ha']),
