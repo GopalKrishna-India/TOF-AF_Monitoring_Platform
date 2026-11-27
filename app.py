@@ -314,7 +314,7 @@ with center_col:
     m = folium.Map(
         location=[centroid[1], centroid[0]],
         zoom_start=9,
-        max_zoom=12,
+        max_zoom=14,
         tiles=None
     )
 
@@ -324,7 +324,7 @@ with center_col:
         name='Google Satellite Hybrid',
         overlay=False,
         control=False,
-        max_zoom=12
+        max_zoom=14
     ).add_to(m)
 
     layers_spec = [
@@ -346,7 +346,7 @@ with center_col:
             control=True,
             show=show,
             opacity=op,
-            max_zoom=12
+            max_zoom=14
         ).add_to(m)
 
     folium.LayerControl(position='topright', collapsed=True).add_to(m)
