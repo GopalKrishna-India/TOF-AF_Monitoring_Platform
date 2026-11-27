@@ -323,7 +323,8 @@ with center_col:
         attr='Google Hybrid',
         name='Google Satellite Hybrid',
         overlay=False,
-        control=False
+        control=False,
+        max_zoom=12
     ).add_to(m)
 
     layers_spec = [
@@ -344,7 +345,8 @@ with center_col:
             overlay=True,
             control=True,
             show=show,
-            opacity=op
+            opacity=op,
+            max_zoom=12
         ).add_to(m)
 
     folium.LayerControl(position='topright', collapsed=True).add_to(m)
