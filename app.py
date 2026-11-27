@@ -34,12 +34,44 @@ def init_ee():
 
 init_ee()
 
+# Compact CSS: clears top Streamlit toolbar and removes excessive vertical gaps
 st.markdown("""
 <style>
-  .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 1450px; }
-  .header-box { background:#ffffff; border:1px solid #e5e7eb; border-radius:6px; padding:8px 14px; margin-bottom:8px; }
-  .metric-card { border:1px solid #e5e7eb; border-radius:6px; padding:6px 10px; margin-bottom:6px; }
-  .footer-box { background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:8px 12px; margin-top:8px; font-size:12px; color:#374151; }
+  .block-container {
+      padding-top: 3.6rem !important;
+      padding-bottom: 0.4rem !important;
+      padding-left: 1.2rem !important;
+      padding-right: 1.2rem !important;
+      max-width: 1500px;
+  }
+  [data-testid="stVerticalBlock"] {
+      gap: 0.35rem !important;
+  }
+  .stSelectbox, .stSlider {
+      margin-bottom: 0px !important;
+  }
+  .header-box {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 6px 12px;
+      margin-bottom: 2px;
+  }
+  .metric-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 5px;
+      padding: 4px 8px;
+      line-height: 1.2;
+  }
+  .footer-box {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 11px;
+      color: #374151;
+      line-height: 1.35;
+  }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,7 +112,7 @@ def get_forest_non_tof_mask():
 FOREST_NON_TOF_MASK = get_forest_non_tof_mask()
 
 # ======================================================
-# 2. PROCESSING FUNCTIONS
+# 2. PROCESSING FUNCTIONS (CACHED FOR INSTANT RESPONSE)
 # ======================================================
 def load_district(state, district_name):
     shapefile_state = 'Orissa' if state == 'Odisha' else state
@@ -127,20 +159,8 @@ def tree_change(base_tree, current_tree):
             .add(current_tree.unmask(0).toByte())
             .rename('TreeChange'))
 
-def add_ee_layer(fmap, ee_image, vis_params, name, show=True, opacity=1.0):
-    map_id_dict = ee.Image(ee_image).getMapId(vis_params)
-    folium.raster_layers.TileLayer(
-        tiles=map_id_dict['tile_fetcher'].url_format,
-        attr='Google Earth Engine',
-        name=name,
-        overlay=True,
-        control=True,
-        show=show,
-        opacity=opacity
-    ).add_to(fmap)
-
-@st.cache_data(show_spinner="Computing district statistics...")
-def compute_district_stats(state, district_name, base_year, current_year):
+@st.cache_data(show_spinner="Loading district data and map layers...")
+def get_district_bundle(state, district_name, base_year, current_year):
     region = load_district(state, district_name)
     bldg_mask = get_building_mask(region)
     tof_base = load_exported_tof(district_name, base_year, region, bldg_mask)
@@ -150,6 +170,7 @@ def compute_district_stats(state, district_name, base_year, current_year):
     total_base = combine_total_tree_cover(tof_base, forest_layer, region)
     total_curr = combine_total_tree_cover(tof_curr, forest_layer, region)
     change_map = tree_change(tof_base, tof_curr)
+    boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
 
     pixel_ha = ee.Image.pixelArea().divide(10000)
     stacked = ee.Image.cat([
@@ -182,7 +203,7 @@ def compute_district_stats(state, district_name, base_year, current_year):
     district_area_ha = region.area().divide(10000)
     pct_total_tree = total_curr_area.divide(district_area_ha).multiply(100)
 
-    return ee.Dictionary({
+    summary = ee.Dictionary({
         'District': district_name,
         'State': state,
         'BaseYear': base_year,
@@ -200,58 +221,67 @@ def compute_district_stats(state, district_name, base_year, current_year):
         'F1Score': DISTRICT_F1_SCORES.get(district_name, 'N/A')
     }).getInfo()
 
+    centroid = region.centroid(100).coordinates().getInfo()
+
+    # Pre-fetch tile URLs once per district/year selection
+    tile_urls = {
+        'change': ee.Image(change_map).getMapId({'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']})['tile_fetcher'].url_format,
+        'tot_base': ee.Image(total_base).getMapId({'palette': ['00AA00']})['tile_fetcher'].url_format,
+        'tot_curr': ee.Image(total_curr).getMapId({'palette': ['006400']})['tile_fetcher'].url_format,
+        'tof_base': ee.Image(tof_base).getMapId({'palette': ['FFD700']})['tile_fetcher'].url_format,
+        'tof_curr': ee.Image(tof_curr).getMapId({'palette': ['FF8C00']})['tile_fetcher'].url_format,
+        'forest': ee.Image(forest_layer).getMapId({'palette': ['0D9488']})['tile_fetcher'].url_format,
+        'boundary': ee.Image(boundary_img).getMapId({'palette': ['000000']})['tile_fetcher'].url_format,
+    }
+
+    return summary, centroid, tile_urls
+
 # ======================================================
 # 3. DASHBOARD UI LAYOUT
 # ======================================================
 st.markdown("""
 <div class="header-box">
-  <span style="font-size:21px; font-weight:800; color:#059669;">🌳 Trees Outside Forest & Agroforestry Monitoring System</span>
-  <span style="font-size:12px; color:#6b7280; margin-left:12px;">🛰️ Satellite-based Monitoring at 10 meters</span>
+  <span style="font-size:19px; font-weight:800; color:#059669;">🌳 Trees Outside Forest & Agroforestry Monitoring System</span>
+  <span style="font-size:12px; color:#6b7280; margin-left:10px;">🛰️ Satellite-based Monitoring at 10 meters</span>
 </div>
 """, unsafe_allow_html=True)
 
-left_col, center_col, right_col = st.columns([1.05, 2.3, 1.15], gap="small")
+left_col, center_col, right_col = st.columns([0.95, 2.4, 1.1], gap="small")
 
 with left_col:
-    st.markdown("**📍 Location & Period**")
+    st.markdown("<div style='font-size:12px; font-weight:700;'>📍 Location & Period</div>", unsafe_allow_html=True)
     state = st.selectbox("State", list(TARGET_DISTRICTS.keys()), index=2)
     district = st.selectbox("District", TARGET_DISTRICTS[state], index=0)
     c1, c2 = st.columns(2)
     base_yr = c1.selectbox("Base Yr", YEARS_LIST, index=0)
     curr_yr = c2.selectbox("Curr Yr", YEARS_LIST, index=3)
 
-    st.markdown("**🗂️ Map Layers & Opacity**")
-    show_change = st.checkbox("TOF Change Map", value=True)
-    op_change = st.slider("Change Opacity", 0.0, 1.0, 0.75, 0.05, label_visibility="collapsed")
-
-    show_tot_base = st.checkbox(f"Total Tree {base_yr}", value=False)
-    show_tot_curr = st.checkbox(f"Total Tree {curr_yr}", value=False)
-    show_tof_base = st.checkbox(f"TOF & AF {base_yr}", value=False)
-    show_tof_curr = st.checkbox(f"TOF & AF {curr_yr}", value=False)
-    show_forest = st.checkbox("Forest and Non-TOF Trees", value=False)
-    layer_op = st.slider("Tree / Forest Layer Opacity", 0.0, 1.0, 0.80, 0.05)
+    layer_op = st.slider("Overlay Opacity", 0.1, 1.0, 0.80, 0.05)
 
     st.markdown("""
-    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:5px; padding:6px 8px; font-size:11px; line-height:1.4;">
+    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:5px; padding:6px 8px; font-size:10.5px; line-height:1.4; margin-top:2px;">
       <b>🗺️ Legend</b><br>
-      <b>TOF Change:</b>
+      <b>TOF Change:</b><br>
       <span style="display:inline-block;width:8px;height:8px;background:#ffffff;border:1px solid #ccc;"></span> Non-tree
-      <span style="display:inline-block;width:8px;height:8px;background:#00ff00;margin-left:6px;"></span> Gain
-      <span style="display:inline-block;width:8px;height:8px;background:#ff0000;margin-left:6px;"></span> Loss<br>
-      <span style="display:inline-block;width:8px;height:8px;background:#006400;"></span> Stable Tree<br>
-      <b>TOF - AF & Forest cover:</b><br>
+      <span style="display:inline-block;width:8px;height:8px;background:#00ff00;margin-left:6px;"></span> Gain<br>
+      <span style="display:inline-block;width:8px;height:8px;background:#ff0000;"></span> Loss
+      <span style="display:inline-block;width:8px;height:8px;background:#006400;margin-left:18px;"></span> Stable Tree<br>
+      <b>TOF - AF & Forest Cover:</b><br>
       <span style="display:inline-block;width:8px;height:8px;background:#00aa00;"></span> Total Base
       <span style="display:inline-block;width:8px;height:8px;background:#006400;margin-left:8px;"></span> Total Curr<br>
       <span style="display:inline-block;width:8px;height:8px;background:#ffd700;"></span> TOF Base
       <span style="display:inline-block;width:8px;height:8px;background:#ff8c00;margin-left:10px;"></span> TOF Curr<br>
       <span style="display:inline-block;width:8px;height:8px;background:#0d9488;"></span> Forest and Non-TOF Trees
     </div>
+    <div style="font-size:10px; color:#6b7280; margin-top:3px;">
+      💡 Use the top-right layer box on the map to toggle layers without resetting zoom.
+    </div>
     """, unsafe_allow_html=True)
 
-s = compute_district_stats(state, district, base_yr, curr_yr)
+s, centroid, tile_urls = get_district_bundle(state, district, base_yr, curr_yr)
 
 with center_col:
-    st.markdown(f"**📊 Analysis Summary (for Selected Current Year), {district}**")
+    st.markdown(f"<div style='font-size:12px; font-weight:700;'>📊 Analysis Summary (for Selected Current Year), {district}</div>", unsafe_allow_html=True)
     cards = [
         ('📐', 'District Area', f"{s['DistrictArea_ha']} ha", '#ecfdf5'),
         ('🌳', 'Total Tree Cover', f"{s['TotalTreeAreaCurrent_ha']} ha", '#ecfdf5'),
@@ -268,21 +298,12 @@ with center_col:
         target_col = r1[idx] if idx < 4 else r2[idx - 4]
         target_col.markdown(f"""
         <div class="metric-card" style="background:{bg};">
-          <div style="font-size:10px; color:#6b7280;">{icon} {title}</div>
-          <div style="font-size:13px; font-weight:700; color:#111827;">{val}</div>
+          <div style="font-size:9.5px; color:#6b7280;">{icon} {title}</div>
+          <div style="font-size:12.5px; font-weight:700; color:#111827;">{val}</div>
         </div>
         """, unsafe_allow_html=True)
 
-    region = load_district(state, district)
-    bldg_mask = get_building_mask(region)
-    tof_base = load_exported_tof(district, base_yr, region, bldg_mask)
-    tof_curr = load_exported_tof(district, curr_yr, region, bldg_mask)
-    forest_layer = get_forest_non_tof(region, bldg_mask)
-    total_base = combine_total_tree_cover(tof_base, forest_layer, region)
-    total_curr = combine_total_tree_cover(tof_curr, forest_layer, region)
-    change_map = tree_change(tof_base, tof_curr)
-
-    centroid = region.centroid(100).coordinates().getInfo()
+    # Map with client-side LayerControl (toggling layers never resets zoom or redraws boundary)
     m = folium.Map(
         location=[centroid[1], centroid[0]],
         zoom_start=9,
@@ -291,40 +312,54 @@ with center_col:
         attr='Google Hybrid'
     )
 
-    if show_change:
-        add_ee_layer(m, change_map, {'min': 0, 'max': 3, 'palette': ['FFFFFF', '00FF00', 'FF0000', '006400']}, 'TOF Change Map', True, op_change)
-    if show_tot_base:
-        add_ee_layer(m, total_base, {'palette': ['00AA00']}, f'Total Tree {base_yr}', True, layer_op)
-    if show_tot_curr:
-        add_ee_layer(m, total_curr, {'palette': ['006400']}, f'Total Tree {curr_yr}', True, layer_op)
-    if show_tof_base:
-        add_ee_layer(m, tof_base, {'palette': ['FFD700']}, f'TOF & AF {base_yr}', True, layer_op)
-    if show_tof_curr:
-        add_ee_layer(m, tof_curr, {'palette': ['FF8C00']}, f'TOF & AF {curr_yr}', True, layer_op)
-    if show_forest:
-        add_ee_layer(m, forest_layer, {'palette': ['0D9488']}, 'Forest and Non-TOF Trees', True, layer_op)
+    layers_spec = [
+        (tile_urls['change'], 'TOF Change Map', True, layer_op),
+        (tile_urls['tot_base'], f'Total Tree {base_yr}', False, layer_op),
+        (tile_urls['tot_curr'], f'Total Tree {curr_yr}', False, layer_op),
+        (tile_urls['tof_base'], f'TOF & AF {base_yr}', False, layer_op),
+        (tile_urls['tof_curr'], f'TOF & AF {curr_yr}', False, layer_op),
+        (tile_urls['forest'], 'Forest and Non-TOF Trees', False, layer_op),
+        (tile_urls['boundary'], 'Boundary', True, 1.0),
+    ]
 
-    boundary_img = ee.Image().byte().paint(ee.FeatureCollection([ee.Feature(region)]), 1, 2)
-    add_ee_layer(m, boundary_img, {'palette': ['000000']}, 'Boundary', True, 1.0)
-    st_folium(m, height=420, use_container_width=True, returned_objects=[])
+    for url, name, show, op in layers_spec:
+        folium.raster_layers.TileLayer(
+            tiles=url,
+            attr='Google Earth Engine',
+            name=name,
+            overlay=True,
+            control=True,
+            show=show,
+            opacity=op
+        ).add_to(m)
+
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+
+    st_folium(
+        m,
+        height=345,
+        use_container_width=True,
+        returned_objects=[],
+        key=f"map_{state}_{district}_{base_yr}_{curr_yr}_{layer_op}"
+    )
 
 with right_col:
-    st.markdown("**📈 Detailed Results**")
+    st.markdown("<div style='font-size:12px; font-weight:700;'>📈 Detailed Results</div>", unsafe_allow_html=True)
     st.markdown(f"""
-    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:8px; font-size:12px; line-height:1.5; margin-bottom:10px;">
+    <div style="background:#f9fafb; border:1px solid #e5e7eb; border-radius:6px; padding:6px 8px; font-size:11px; line-height:1.42;">
       <b>{s['District'].upper()}, {s['State']}</b><br>
       <b>District Area:</b> {s['DistrictArea_ha']} ha<br>
       <b>Total Tree Cover:</b> {s['TotalTreeAreaCurrent_ha']} ha ({s['TotalTreeCoverPercent']}%)<br>
       <b>TOF & Agroforestry:</b> {s['TOFAreaCurrent_ha']} ha<br>
-      <b>Forest and Non-TOF Trees:</b> {s['ForestNonTOFArea_ha']} ha<br>
+      <b>Forest & Non-TOF Trees:</b> {s['ForestNonTOFArea_ha']} ha<br>
       <b>TOF Gain / Loss:</b> +{s['TreeGain_ha']} / -{s['TreeLoss_ha']} ha<br>
       <b>TOF Net Change:</b> {s['NetChange_ha']} ha<br>
       <b>Accuracy (F1 Score):</b> {s['F1Score']} %
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("**📊 Area Comparison**")
-    fig, ax = plt.subplots(figsize=(3.4, 2.5), dpi=110)
+    st.markdown("<div style='font-size:12px; font-weight:700; margin-top:2px;'>📊 Area Comparison</div>", unsafe_allow_html=True)
+    fig, ax = plt.subplots(figsize=(3.4, 2.15), dpi=110)
     labels = [f'Total\n{base_yr}', f'Total\n{curr_yr}', f'TOF\n{base_yr}', f'TOF\n{curr_yr}', 'Forest &\nNon-TOF']
     values = [
         float(s['TotalTreeAreaBase_ha']),
@@ -335,9 +370,9 @@ with right_col:
     ]
     colors = ['#1B5E20', '#43A047', '#FBC02D', '#F57F17', '#0D9488']
     bars = ax.bar(labels, values, color=colors, width=0.52)
-    ax.set_title(f"Area Comparison ({district.upper()})", fontsize=9, fontweight='bold')
-    ax.set_ylabel("Area (ha)", fontsize=8)
-    ax.tick_params(axis='both', labelsize=7)
+    ax.set_title(f"Area Comparison ({district.upper()})", fontsize=8.5, fontweight='bold')
+    ax.set_ylabel("Area (ha)", fontsize=7.5)
+    ax.tick_params(axis='both', labelsize=6.8)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     for bar in bars:
@@ -345,13 +380,13 @@ with right_col:
         ax.annotate(f'{int(h):,}',
                     xy=(bar.get_x() + bar.get_width() / 2, h),
                     xytext=(0, 2), textcoords="offset points",
-                    ha='center', va='bottom', fontsize=6.5)
+                    ha='center', va='bottom', fontsize=6.2)
     plt.tight_layout()
     st.pyplot(fig)
 
 st.markdown("""
 <div class="footer-box">
   <div><b>🛰️ Methodology:</b> Trees Outside Forest and Agroforestry (TOF-AF) cover is mapped using supervised machine learning applied to Google’s 10 m Satellite Embedding dataset (61-band AI feature representations). District-level classification accuracy is evaluated against an independent validation sample using the F1 score.</div>
-  <div style="margin-top:3px;"><b>⚠️ Limitations:</b> While 10 m resolution captures block plantations, orchards, and linear agroforestry effectively, isolated single trees and sparsely scattered canopies may experience omission or commission errors due to sub-pixel mixing.</div>
+  <div style="margin-top:2px;"><b>⚠️ Limitations:</b> While 10 m resolution captures block plantations, orchards, and linear agroforestry effectively, isolated single trees and sparsely scattered canopies may experience omission or commission errors due to sub-pixel mixing.</div>
 </div>
 """, unsafe_allow_html=True)
